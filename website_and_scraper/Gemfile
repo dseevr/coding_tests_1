@@ -1,5 +1,10 @@
 source 'https://rubygems.org'
 
+# ===== GEMS ADDED BY BILL =========================================================================
+
+gem "nokogiri", "1.6.6.2"
+
+# ===== RAILS DEFAULTS =============================================================================
 
 # Bundle edge Rails instead: gem 'rails', github: 'rails/rails'
 gem 'rails', '4.2.4'
@@ -41,4 +46,3 @@ group :development do
   # Access an IRB console on exception pages or by using <%= console %> in views
   gem 'web-console', '~> 2.0'
 end
-
