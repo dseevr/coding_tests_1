@@ -1,10 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
-	"net/http"
 	"math/rand"
 	"net"
+	"net/http"
 	"strings"
 	"time"
 
@@ -53,6 +54,24 @@ type Visit struct {
 	UserAgent      string        `bson:"user_agent"`
 	Country        string        `bson:"country"`
 	Referrer       string        `bson:"referrer"`
+}
+
+// ----- STATS STRUCTURES --------------------------------------------------------------------------
+
+type Stats struct {
+	Countries   []StatsCountries `json:"by_country"`
+	Referrers   []StatsReferrer  `json:"by_referrer"`
+	TotalVisits int              `json:"total_visits"`
+}
+
+type StatsCountries struct {
+	Name   string `json:"name"`
+	Visits int    `json:"visits"`
+}
+
+type StatsReferrer struct {
+	Url    string `json:"url"`
+	Visits int    `json:"visits":`
 }
 
 // ===== FUNCTIONS =================================================================================
@@ -161,9 +180,9 @@ func loadMaxmindDb() *geoip2.Reader {
 	db, err := geoip2.Open(maxmindDbName)
 	if err != nil {
 		log.Fatalln("geoip2.Open:", err)
-    }
+	}
 
-    return db
+	return db
 }
 
 func longUrlForShortId(id string) string {
@@ -307,14 +326,93 @@ func shortUrlStatsHandler(w http.ResponseWriter, req *http.Request) {
 	short_id := shortIdFromUrl(req)
 
 	// 1. see if the short ID exists
-	if !shortIdExists(short_id) {
+
+	// we need the BSON id, so use this function instead of shortIdExists()
+	record, found := findRecordByShortId(short_id)
+	if !found {
 		http.Error(w, "", http.StatusNotFound)
 		return
 	}
 
 	// 2. compile the stats and send them back as a 200 JSON blob
 
-	http.Error(w, "", http.StatusOK)
+	stats := Stats{}
+
+	// ----- TOTAL VISITS --------------------------------------------------------------------------
+
+	query := bson.M{"shortened_url_id": record.Id}
+
+	count, err := visit_collection.Find(query).Count()
+	if err != nil {
+		log.Println("visit_collection.Find:", err)
+	}
+
+	stats.TotalVisits = count
+
+	// ----- VISITS BY COUNTRY ---------------------------------------------------------------------
+
+	// NOTE: I wanted to try out MapReduce in MongoDB... obviously you would never do this live haha
+
+	country_job := mgo.MapReduce{
+		Map:    "function() { if(!this.country.length) return; emit(this.country, 1); }",
+		Reduce: "function(country, count) { return Array.sum(count) }",
+	}
+
+	var country_results []struct {
+		Name   string "_id"
+		Visits int    "value"
+	}
+
+	_, err = visit_collection.Find(query).MapReduce(&country_job, &country_results)
+	if err != nil {
+		log.Fatalln("visit_collection.Find:", err)
+	}
+
+	for _, item := range country_results {
+		sc := StatsCountries{Name: item.Name, Visits: item.Visits}
+		stats.Countries = append(stats.Countries, sc)
+	}
+
+	// ----- TOP REFERRERS -------------------------------------------------------------------------
+
+	referrer_results := []Visit{}
+
+	iter := visit_collection.Find(query).Limit(1000).Iter()
+	err = iter.All(&referrer_results)
+	if err != nil {
+		log.Fatalln("visit_collection.Find:", err)
+	}
+
+	referring_urls := make(map[string]int)
+
+	for _, value := range referrer_results {
+		if 0 == len(value.Referrer) {
+			// skip empty referrers, could also do this at the DB level
+			continue
+		}
+
+		referring_urls[value.Referrer] += 1
+	}
+
+	sr_arr := []StatsReferrer{}
+
+	for key, value := range referring_urls {
+		sr := StatsReferrer{Url: key, Visits: value}
+		sr_arr = append(sr_arr, sr)
+	}
+
+	stats.Referrers = sr_arr
+
+	// ----- RENDER JSON RESPONSE ------------------------------------------------------------------
+
+	bytes, err := json.Marshal(stats)
+	if err != nil {
+		log.Fatalln("json.Marshal:", err)
+	}
+
+	log.Println("Rendered stats JSON for", short_id)
+
+	http.Error(w, string(bytes), http.StatusOK)
 }
 
 // ===== ENTRYPOINT ================================================================================
@@ -355,7 +453,7 @@ func main() {
 
 	// ----- HTTP SERVER ---------------------------------------------------------------------------
 
-	log.Println("Listening on localhost:", httpPort)
+	log.Println("Listening on localhost:" + httpPort)
 
 	err := http.ListenAndServe(":" + httpPort, nil)
 	if err != nil {
