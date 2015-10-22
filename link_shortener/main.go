@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/drone/routes"
 )
@@ -11,10 +12,28 @@ import (
 
 const (
 	httpPort = "12345"
-	shortRegex = ":short([a-f0-9]{8})" // 16 ** 8 = 4,294,967,296 possible URLs
+	shortRegex = ":shortID([a-f0-9]{8})" // 16 ** 8 = 4,294,967,296 possible URLs
 )
 
 // ===== FUNCTIONS =================================================================================
+
+func shortIdFromUrl(req *http.Request) string {
+	return req.URL.Query().Get(":shortID")
+}
+
+func shortIdExists(id string) bool {
+	if 0 == len(id) {
+		return false
+	}
+
+	// check for id in database
+	return exists_in_db(id)
+}
+
+func urlIsValid(url string) bool {
+	// see models/listing.rb for more discussion about this
+	return strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://")
+}
 
 // ===== HTTP HANDLERS =============================================================================
 
@@ -27,7 +46,14 @@ func emptyHandler(w http.ResponseWriter, req *http.Request) {
 // the json response includes the short URL if successful
 // returns a 409 "Conflict" otherwise (there's really no consensus on status code for this case)
 func shortenUrlHandler(w http.ResponseWriter, req *http.Request) {
-	// 1. make sure URL is _somewhat valid_ (see my comments on :url in models/listing.rb)
+
+	// 1. make sure the long URL is _somewhat valid_ (see my comments on :url in models/listing.rb)
+	long_url := req.FormValue("url")
+
+	if !urlIsValid(long_url) {
+		http.Error(w, "", http.StatusConflict)
+		return
+	}
 
 	// 2. come up with a unique short ID for this URL
 	// Generate an 8 character hex string, see if it's in use, repeat until one isn't in use
@@ -35,19 +61,21 @@ func shortenUrlHandler(w http.ResponseWriter, req *http.Request) {
 	// 3. store the original URL + short ID into the db
 
 	// 4. return a 200 JSON blob with the short URL or a 409
-
-	// if it succeeds:
 	http.Error(w, "", http.StatusCreated)
-
-	// or if it fails:
-	// http.Error(w, "", http.StatusConflict)
 }
 
 // returns a 301 "Moved Permanently" if the short url exists
 // records the click and associated metrics/data
 // returns a 404 "Not Found" if no match
 func shortUrlRedirectHandler(w http.ResponseWriter, req *http.Request) {
-	// 1. see if the short URL exists
+
+	short_id := shortIdFromUrl(req)
+
+	// 1. see if the short ID exists
+	if !shortIdExists(short_id) {
+		http.Error(w, "", http.StatusNotFound)
+		return
+	}
 
 	// 2. if it does, extract a few things:
 	//   a. IP Address
@@ -60,29 +88,31 @@ func shortUrlRedirectHandler(w http.ResponseWriter, req *http.Request) {
 	// 4. send the 301 redirect to the full URL
 
 	http.Error(w, "", http.StatusMovedPermanently)
-
-	// or if it fails:
-	// http.Error(w, "", http.StatusNotFound)
 }
 
 // formats and returns a 200 "OK" JSON response of stats/metrics about the short URL in question
 // returns a 404 "Not Found" if no match
 func shortUrlStatsHandler(w http.ResponseWriter, req *http.Request) {
-	// 1. see if the short URL exists
+
+	short_id := shortIdFromUrl(req)
+
+	// 1. see if the short ID exists
+	if !shortIdExists(short_id) {
+		http.Error(w, "", http.StatusNotFound)
+		return
+	}
 
 	// 2. compile the stats and send them back as a 200 JSON blob
 
-	// if it succeeds:
 	http.Error(w, "", http.StatusOK)
-
-	// or if it fails:
-	http.Error(w, "", http.StatusNotFound)
 }
 
 // ===== ENTRYPOINT ================================================================================
 
 func main() {
 	mux := routes.New()
+
+	// ----- HTTP HANDLERS -------------------------------------------------------------------------
 
 	mux.Get("/ping", emptyHandler) // useful for poking the server to see if it's alive
 
@@ -92,6 +122,8 @@ func main() {
 	mux.Get("/s/" + shortRegex, shortUrlRedirectHandler) // records visit and redirects to full URL
 
 	http.Handle("/", mux)
+
+	// ----- HTTP SERVER ---------------------------------------------------------------------------
 
 	log.Println("Listening on localhost:", httpPort)
 
