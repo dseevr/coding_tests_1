@@ -1,36 +1,36 @@
-<p id="notice"><%= notice %></p>
+<%= render partial: "listings/edit_modal" %>
 
-<h1>
-  Alexa Top 100 Sites
-  <% if params[:page] %>
-    &mdash; Page <%= params[:page] %>
-  <% end %>
-</h1>
-
-<%= will_paginate @posts %>
-
-<table>
-  <thead>
-    <tr>
-      <th>Name</th>
-      <th>Url</th>
-      <th>Description</th>
-      <th>Global rank</th>
-      <th colspan="3"></th>
-    </tr>
-  </thead>
-
-  <tbody>
-    <% @listings.each do |listing| %>
-      <tr>
-        <td class="global_rank"><%= listing.global_rank %></td>
-        <td><%= listing.name %></td>
-        <td><%= link_to listing.url, listing.url, target: "_blank" %></td>
-        <td style="max-width: 400px"><%= listing.description %></td>
-        <td><%= link_to 'Edit', "#" %></td>
-      </tr>
+<div class="container">
+  <h1>
+    Alexa Top 100 Sites
+    <% if params[:page] %>
+      &mdash; Page <%= params[:page] %>
     <% end %>
-  </tbody>
-</table>
+  </h1>
 
-<%= will_paginate @posts %>
+  <%= will_paginate @posts %>
+
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th>Global rank</th>
+        <th>Site Name</th>
+        <th>URL</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+
+    <tbody>
+      <% @listings.each do |listing| %>
+        <tr data-id=<%= listing.id %>>
+          <td data-column="global-rank"><%= listing.global_rank %></td>
+          <td data-column="name"><%= listing.name %></td>
+          <td data-column="url"><%= link_to listing.url, listing.url, target: "_blank" %></td>
+          <td data-column="description" style="max-width: 400px"><%= listing.description %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+
+  <%= will_paginate @posts %>
+</div>

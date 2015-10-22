@@ -14,23 +14,20 @@
  *= require_self
  */
 
+
 table, th, td {
-  border: 1px solid #aaa;
+  border: 1px solid #ccc;
 }
 
-td {
-  padding: 8px;
-
-  &.global_rank {
-    font-size: 22px;
-  }
-}
-
-tr:hover {
+tbody tr:hover, .table-striped > tbody > tr:nth-of-type(2n+1):hover {
   background-color: yellow;
 }
 
 .pagination {
-  margin: 20px;
-  font-size: 20px;
+  margin: 30px 0;
+  font-size: 30px;
+}
+
+.error_message {
+  color: red;
 }

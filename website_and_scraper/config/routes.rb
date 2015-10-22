@@ -1,6 +1,6 @@
 Rails.application.routes.draw do
 
-  resources :listings, only: [:edit, :index, :update]
+  resources :listings, only: [:index, :update]
 
   root to: "listings#home"
 
