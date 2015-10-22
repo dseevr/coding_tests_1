@@ -4,10 +4,12 @@ import (
 	"log"
 	"net/http"
 	"math/rand"
+	"net"
 	"strings"
 	"time"
 
 	"github.com/drone/routes"
+	"github.com/oschwald/geoip2-golang"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 )
@@ -19,6 +21,7 @@ const (
 	databaseName = "traction_demo"
 	debug = true
 	httpPort = "12345"
+	maxmindDbName = "GeoLite2-Country.mmdb"
 	shortDomain = "localhost" + ":" + httpPort // setting to "localhost" is convenient for testing!
 	shortRegex = ":shortID([a-f0-9]{8})" // 16 ** 8 = 4,294,967,296 possible URLs
 
@@ -28,6 +31,9 @@ const (
 
 // our MongoDB collection
 var collection *mgo.Collection
+
+// for state/country lookup
+var maxmindDB *geoip2.Reader
 
 // ===== STRUCTURES ================================================================================
 
@@ -56,9 +62,25 @@ func connectToMongo(host string) *mgo.Session {
 		log.Fatalln("mgo.Dial:", err)
 	}
 
+	conn.SetMode(mgo.Strong, true) // don't trust computers, ever
+	conn.SetSafe(&mgo.Safe{})
+
 	log.Println("Connected.")
 
 	return conn
+}
+
+func countryFromIp(ip string) string {
+	record, err := maxmindDB.Country(net.ParseIP(ip))
+	if err != nil {
+		log.Fatalln("geoip2.Country:", err)
+	}
+
+	country := record.Country.Names["en"]
+
+	log.Printf("Found country \"%v\" for IP %v\n", country, ip)
+
+	return country
 }
 
 func createNewShortUrl(long_url, short_id string) string {
@@ -105,6 +127,42 @@ func generateShortId() string {
 	}
 
 	return s
+}
+
+func ipFromRequest(req *http.Request) string {
+	// NOTE: this should really be checking for X-Forwarded-For, X-Real-IP, etc.
+
+	// NOTE: You can set a custom IP for testing, e.g.,:
+	//       curl -H "X-IP: 1.2.3.4" http://localhost/s/abc123
+	custom_ip := req.Header.Get("X-IP")
+
+	ip := ""
+
+	log.Println("req.RemoteAddr:",req.RemoteAddr)
+
+	if 0 == len(custom_ip) {
+		ip = strings.Split(req.RemoteAddr, ":")[0]
+	} else {
+		ip = custom_ip
+	}
+
+	// NOTE: on localhost, the IP that Go shows me is the IPv6 loopback address, so if the result
+	//       of strings.Split() above isn't parseable as IPv4, just convert it to the IPv4 loopback
+	//       so Maxmind can look it up without exploding (and return "").
+	if nil == net.ParseIP(ip) {
+		ip = "127.0.0.1"
+	}
+
+	return ip
+}
+
+func loadMaxmindDb() *geoip2.Reader {
+	db, err := geoip2.Open(maxmindDbName)
+	if err != nil {
+		log.Fatalln("geoip2.Open:", err)
+    }
+
+    return db
 }
 
 func longUrlForShortId(id string) string {
@@ -200,8 +258,18 @@ func shortUrlRedirectHandler(w http.ResponseWriter, req *http.Request) {
 	// 2. if it does, extract a few things:
 	//   a. IP Address
 	//   b. User Agent
-	//   c. Country and State (from MaxMind)
+	//   c. Country (from MaxMind)
 	//   d. Referrer
+
+	ip := ipFromRequest(req)
+	ua := req.Header.Get("User-Agent")
+	country := countryFromIp(ip)
+	referer := req.Referer()
+
+	log.Println("IP:", ip)
+	log.Println("User Agent:", ua)
+	log.Println("Country:", country)
+	log.Println("Referrer:", referer)
 
 	// 3. record the visit into the database
 
@@ -247,14 +315,15 @@ func main() {
 
 	mongo_conn := connectToMongo("localhost")
 	defer mongo_conn.Close()
-	mongo_conn.SetMode(mgo.Strong, true) // don't trust computers, ever
-	mongo_conn.SetSafe(&mgo.Safe{})
 
 	collection = mongo_conn.DB(databaseName).C(collectionName)
 
-	mux := routes.New()
+	maxmindDB = loadMaxmindDb()
+	defer maxmindDB.Close()
 
 	// ----- HTTP HANDLERS -------------------------------------------------------------------------
+
+	mux := routes.New()
 
 	mux.Get("/ping", emptyHandler) // useful for poking the server to see if it's alive
 
