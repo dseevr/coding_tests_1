@@ -17,7 +17,6 @@ import (
 // ===== CONSTANTS / GLOBALS =======================================================================
 
 const (
-	collectionName = "shortened_urls"
 	databaseName = "traction_demo"
 	debug = true
 	httpPort = "12345"
@@ -27,10 +26,14 @@ const (
 
 	// must be ASCII for this demo because we index into it directly and also use len() on it
 	shortIdChars = "01234567890abcdef"
+
+	urlCollectionName = "shortened_urls"
+	visitCollectionName = "visits"
 )
 
-// our MongoDB collection
-var collection *mgo.Collection
+// our MongoDB collections
+var url_collection   *mgo.Collection
+var visit_collection *mgo.Collection
 
 // for state/country lookup
 var maxmindDB *geoip2.Reader
@@ -41,15 +44,15 @@ type ShortenedUrl struct {
 	Id      bson.ObjectId `bson:"_id"`
 	LongUrl string        `bson:"long_url"`
 	ShortId string        `bson:"short_id"`
-	// Visitors []*Visit
+	Visits []*Visit       `bson:"visits"`
 }
 
 type Visit struct {
-	IpAddress string
-	UserAgent  string
-	Country    string
-	State      string
-	Referrer   string
+	ShortenedUrlId bson.ObjectId `bson:"shortened_url_id"`
+	IpAddress      string        `bson:"ip_address"`
+	UserAgent      string        `bson:"user_agent"`
+	Country        string        `bson:"country"`
+	Referrer       string        `bson:"referrer"`
 }
 
 // ===== FUNCTIONS =================================================================================
@@ -92,9 +95,9 @@ func createNewShortUrl(long_url, short_id string) string {
 		ShortId: short_id,
 	}
 
-	err := collection.Insert(shortened_url)
+	err := url_collection.Insert(shortened_url)
 	if err != nil {
-		log.Fatalln("collection.Insert:", err)
+		log.Fatalln("url_collection.Insert:", err)
 	}
 
 	log.Printf("Created new short URL: %v -> %v (id: %v)\n", short_id, long_url, bson_id)
@@ -105,14 +108,14 @@ func createNewShortUrl(long_url, short_id string) string {
 func findRecordByShortId(id string) (*ShortenedUrl, bool) {
 	result := ShortenedUrl{}
 
-	err := collection.Find(bson.M{"short_id": id}).One(&result)
+	err := url_collection.Find(bson.M{"short_id": id}).One(&result)
 
 	if nil == err {
 		return &result, true
 	} else if mgo.ErrNotFound == err {
 		return nil, false
 	} else {
-		log.Fatalln("collection.Find:", err)
+		log.Fatalln("url_collection.Find:", err)
 		return nil, false
 	}
 }
@@ -137,8 +140,6 @@ func ipFromRequest(req *http.Request) string {
 	custom_ip := req.Header.Get("X-IP")
 
 	ip := ""
-
-	log.Println("req.RemoteAddr:",req.RemoteAddr)
 
 	if 0 == len(custom_ip) {
 		ip = strings.Split(req.RemoteAddr, ":")[0]
@@ -173,6 +174,19 @@ func longUrlForShortId(id string) string {
 	} else {
 		panic("Couldn't find long URL for short ID: " + id)
 	}
+}
+
+func recordVisit(visit Visit) {
+	err := visit_collection.Insert(visit)
+	if err != nil {
+		log.Fatalln("visit_collection.Insert:", err)
+	}
+
+	log.Println("Recorded new visit:")
+	log.Println("IP:", visit.IpAddress)
+	log.Println("User Agent:", visit.UserAgent)
+	log.Println("Country:", visit.Country)
+	log.Println("Referrer:", visit.Referrer)
 }
 
 func shortIdFromUrl(req *http.Request) string {
@@ -250,7 +264,10 @@ func shortUrlRedirectHandler(w http.ResponseWriter, req *http.Request) {
 	short_id := shortIdFromUrl(req)
 
 	// 1. see if the short ID exists
-	if !shortIdExists(short_id) {
+
+	// we need the BSON id later, so use this function instead of shortIdExists()
+	record, found := findRecordByShortId(short_id)
+	if !found {
 		http.Error(w, "", http.StatusNotFound)
 		return
 	}
@@ -262,23 +279,22 @@ func shortUrlRedirectHandler(w http.ResponseWriter, req *http.Request) {
 	//   d. Referrer
 
 	ip := ipFromRequest(req)
-	ua := req.Header.Get("User-Agent")
-	country := countryFromIp(ip)
-	referer := req.Referer()
 
-	log.Println("IP:", ip)
-	log.Println("User Agent:", ua)
-	log.Println("Country:", country)
-	log.Println("Referrer:", referer)
+	visit := Visit{
+		ShortenedUrlId: record.Id,
+		IpAddress: ip,
+		UserAgent: req.Header.Get("User-Agent"),
+		Country: countryFromIp(ip),
+		Referrer: req.Referer(),
+	}
 
 	// 3. record the visit into the database
+	recordVisit(visit)
 
 	// 4. send the 301 redirect to the full URL
-	long_url := longUrlForShortId(short_id)
+	w.Header().Set("Location", record.LongUrl)
 
-	w.Header().Set("Location", long_url)
-
-	log.Println("Redirecting from short ID", short_id, "to long URL:", long_url)
+	log.Println("Redirecting from short ID", short_id, "to long URL:", record.LongUrl)
 
 	http.Error(w, "", http.StatusMovedPermanently)
 }
@@ -316,7 +332,10 @@ func main() {
 	mongo_conn := connectToMongo("localhost")
 	defer mongo_conn.Close()
 
-	collection = mongo_conn.DB(databaseName).C(collectionName)
+	mongo_db := mongo_conn.DB(databaseName)
+
+	url_collection   = mongo_db.C(urlCollectionName)
+	visit_collection = mongo_db.C(visitCollectionName)
 
 	maxmindDB = loadMaxmindDb()
 	defer maxmindDB.Close()
