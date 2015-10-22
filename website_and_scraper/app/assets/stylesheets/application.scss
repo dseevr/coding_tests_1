@@ -13,3 +13,24 @@
  *= require_tree .
  *= require_self
  */
+
+table, th, td {
+  border: 1px solid #aaa;
+}
+
+td {
+  padding: 8px;
+
+  &.global_rank {
+    font-size: 22px;
+  }
+}
+
+tr:hover {
+  background-color: yellow;
+}
+
+.pagination {
+  margin: 20px;
+  font-size: 20px;
+}

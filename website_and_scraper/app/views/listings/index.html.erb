@@ -1,6 +1,13 @@
 <p id="notice"><%= notice %></p>
 
-<h1>Listing Listings</h1>
+<h1>
+  Alexa Top 100 Sites
+  <% if params[:page] %>
+    &mdash; Page <%= params[:page] %>
+  <% end %>
+</h1>
+
+<%= will_paginate @posts %>
 
 <table>
   <thead>
@@ -16,18 +23,14 @@
   <tbody>
     <% @listings.each do |listing| %>
       <tr>
+        <td class="global_rank"><%= listing.global_rank %></td>
         <td><%= listing.name %></td>
-        <td><%= listing.url %></td>
-        <td><%= listing.description %></td>
-        <td><%= listing.global_rank %></td>
-        <td><%= link_to 'Show', listing %></td>
-        <td><%= link_to 'Edit', edit_listing_path(listing) %></td>
-        <td><%= link_to 'Destroy', listing, method: :delete, data: { confirm: 'Are you sure?' } %></td>
+        <td><%= link_to listing.url, listing.url, target: "_blank" %></td>
+        <td style="max-width: 400px"><%= listing.description %></td>
+        <td><%= link_to 'Edit', "#" %></td>
       </tr>
     <% end %>
   </tbody>
 </table>
 
-<br>
-
-<%= link_to 'New Listing', new_listing_path %>
+<%= will_paginate @posts %>

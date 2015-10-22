@@ -37,7 +37,7 @@ class Listing < ActiveRecord::Base
   #             up their very poorly validated Rails code, and ultimately this is exactly the URL
   #             validation regex which was in place when I left.  Shocking, I know.
   #             It's also worthwhile to run String#strip in a before_* callback because of
-  #             trailing whitespace which users will accidentally
+  #             trailing whitespace which users will accidentally include.
   validates_format_of :url, with: /\Ahttps?:\/\//
 
   # ===== CALLBACKS ================================================================================
