@@ -139,7 +139,6 @@ PLATFORMS
 
 DEPENDENCIES
   byebug
-  coffee-rails (~> 4.1.0)
   jbuilder (~> 2.0)
   jquery-rails
   nokogiri (= 1.6.6.2)
