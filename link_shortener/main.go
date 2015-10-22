@@ -18,22 +18,22 @@ import (
 // ===== CONSTANTS / GLOBALS =======================================================================
 
 const (
-	databaseName = "traction_demo"
-	debug = true
-	httpPort = "12345"
+	databaseName  = "traction_demo"
+	debug         = true
+	httpPort      = "12345"
 	maxmindDbName = "GeoLite2-Country.mmdb"
-	shortDomain = "localhost" + ":" + httpPort // setting to "localhost" is convenient for testing!
-	shortRegex = ":shortID([a-f0-9]{8})" // 16 ** 8 = 4,294,967,296 possible URLs
+	shortDomain   = "localhost" + ":" + httpPort // setting to "localhost" is convenient for testing!
+	shortRegex    = ":shortID([a-f0-9]{8})"      // 16 ** 8 = 4,294,967,296 possible URLs
 
 	// must be ASCII for this demo because we index into it directly and also use len() on it
 	shortIdChars = "01234567890abcdef"
 
-	urlCollectionName = "shortened_urls"
+	urlCollectionName   = "shortened_urls"
 	visitCollectionName = "visits"
 )
 
 // our MongoDB collections
-var url_collection   *mgo.Collection
+var url_collection *mgo.Collection
 var visit_collection *mgo.Collection
 
 // for state/country lookup
@@ -45,7 +45,7 @@ type ShortenedUrl struct {
 	Id      bson.ObjectId `bson:"_id"`
 	LongUrl string        `bson:"long_url"`
 	ShortId string        `bson:"short_id"`
-	Visits []*Visit       `bson:"visits"`
+	Visits  []*Visit      `bson:"visits"`
 }
 
 type Visit struct {
@@ -264,7 +264,7 @@ func shortenUrlHandler(w http.ResponseWriter, req *http.Request) {
 	// Generate a short ID, see if it's in use, repeat until one isn't in use
 	short_id := generateShortId()
 
-	for ; shortIdExists(short_id); {
+	for shortIdExists(short_id) {
 		short_id = generateShortId()
 	}
 
@@ -301,10 +301,10 @@ func shortUrlRedirectHandler(w http.ResponseWriter, req *http.Request) {
 
 	visit := Visit{
 		ShortenedUrlId: record.Id,
-		IpAddress: ip,
-		UserAgent: req.Header.Get("User-Agent"),
-		Country: countryFromIp(ip),
-		Referrer: req.Referer(),
+		IpAddress:      ip,
+		UserAgent:      req.Header.Get("User-Agent"),
+		Country:        countryFromIp(ip),
+		Referrer:       req.Referer(),
 	}
 
 	// 3. record the visit into the database
@@ -432,7 +432,7 @@ func main() {
 
 	mongo_db := mongo_conn.DB(databaseName)
 
-	url_collection   = mongo_db.C(urlCollectionName)
+	url_collection = mongo_db.C(urlCollectionName)
 	visit_collection = mongo_db.C(visitCollectionName)
 
 	maxmindDB = loadMaxmindDb()
@@ -444,10 +444,10 @@ func main() {
 
 	mux.Get("/ping", emptyHandler) // useful for poking the server to see if it's alive
 
-	mux.Post("/urls/shorten", shortenUrlHandler) // returns a new shortened URL
-	mux.Get("/urls/" + shortRegex + "/stats" , shortUrlStatsHandler) // returns stats as JSON
+	mux.Post("/urls/shorten", shortenUrlHandler)                // returns a new shortened URL
+	mux.Get("/urls/"+shortRegex+"/stats", shortUrlStatsHandler) // returns stats as JSON
 
-	mux.Get("/s/" + shortRegex, shortUrlRedirectHandler) // records visit and redirects to full URL
+	mux.Get("/s/"+shortRegex, shortUrlRedirectHandler) // records visit and redirects to full URL
 
 	http.Handle("/", mux)
 
@@ -455,7 +455,7 @@ func main() {
 
 	log.Println("Listening on localhost:" + httpPort)
 
-	err := http.ListenAndServe(":" + httpPort, nil)
+	err := http.ListenAndServe(":"+httpPort, nil)
 	if err != nil {
 		log.Fatalln("http.ListenAndServe:", err)
 	}
