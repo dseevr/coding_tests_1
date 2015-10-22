@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/drone/routes"
+	"gopkg.in/mgo.v2"
+	// "gopkg.in/mgo.v2/bson"
 )
 
 // ===== CONSTANTS / GLOBALS =======================================================================
@@ -15,7 +17,35 @@ const (
 	shortRegex = ":shortID([a-f0-9]{8})" // 16 ** 8 = 4,294,967,296 possible URLs
 )
 
+// our MongoDB connection
+var db *mgo.Session
+
+// ===== STRUCTURES ================================================================================
+
+type ShortenedUrl struct {
+	LongUrl string
+	ShortId string
+	Visitors []*Visit
+}
+
+type Visit struct {
+	IpAddress string
+	UserAgent  string
+	Country    string
+	State      string
+	Referrer   string
+}
+
 // ===== FUNCTIONS =================================================================================
+
+func connectToMongo(host string) *mgo.Session {
+	conn, err := mgo.Dial(host)
+	if err != nil {
+		log.Fatalln("mgo.Dial:", err)
+	}
+
+	return conn
+}
 
 func shortIdFromUrl(req *http.Request) string {
 	return req.URL.Query().Get(":shortID")
@@ -110,6 +140,16 @@ func shortUrlStatsHandler(w http.ResponseWriter, req *http.Request) {
 // ===== ENTRYPOINT ================================================================================
 
 func main() {
+
+	// ----- SETUP ---------------------------------------------------------------------------------
+
+	// NOTE: you'd probably want to set GOMAXPROCS or runtime.GOMAXPROCS() here
+
+	db = connectToMongo("localhost")
+	defer db.Close()
+
+	db.SetMode(mgo.Strong, true) // don't trust computers, ever
+
 	mux := routes.New()
 
 	// ----- HTTP HANDLERS -------------------------------------------------------------------------
