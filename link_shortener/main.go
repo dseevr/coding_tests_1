@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"math/rand"
 	"strings"
 
 	"github.com/drone/routes"
@@ -13,12 +14,17 @@ import (
 // ===== CONSTANTS / GLOBALS =======================================================================
 
 const (
+	collectionName = "shortened_urls"
+	databaseName = "traction_demo"
 	httpPort = "12345"
 	shortRegex = ":shortID([a-f0-9]{8})" // 16 ** 8 = 4,294,967,296 possible URLs
+
+	// must be ASCII for this demo because we index into it directly and also use len() on it
+	shortIdChars = "01234567890abcdef"
 )
 
-// our MongoDB connection
-var db *mgo.Session
+// our MongoDB collection
+var collection *mgo.Collection
 
 // ===== STRUCTURES ================================================================================
 
@@ -39,12 +45,28 @@ type Visit struct {
 // ===== FUNCTIONS =================================================================================
 
 func connectToMongo(host string) *mgo.Session {
+	log.Println("Trying to connect to mongo @", host)
+
 	conn, err := mgo.Dial(host)
 	if err != nil {
 		log.Fatalln("mgo.Dial:", err)
 	}
 
+	log.Println("Connected.")
+
 	return conn
+}
+
+// creates a random 8 character hex string
+func generateShortId() string {
+	s := ""
+	max := len(shortIdChars) // don't need to -1 because rand.Intn is exclusive of the upper bound
+
+	for i := 0; i < 8; i++ {
+		s += string(shortIdChars[rand.Intn(max)])
+	}
+
+	return s
 }
 
 func shortIdFromUrl(req *http.Request) string {
@@ -86,12 +108,16 @@ func shortenUrlHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// 2. come up with a unique short ID for this URL
-	// Generate an 8 character hex string, see if it's in use, repeat until one isn't in use
+	// Generate a short ID, see if it's in use, repeat until one isn't in use
+	short_id := generateShortId()
+
+	for ; shortIdExists(short_id); {
+		short_id = generateShortId()
+	}
 
 	// 3. store the original URL + short ID into the db
 
-	// 4. return a 200 JSON blob with the short URL or a 409
-	http.Error(w, "", http.StatusCreated)
+	http.Error(w, short_id, http.StatusCreated)
 }
 
 // returns a 301 "Moved Permanently" if the short url exists
@@ -145,10 +171,12 @@ func main() {
 
 	// NOTE: you'd probably want to set GOMAXPROCS or runtime.GOMAXPROCS() here
 
-	db = connectToMongo("localhost")
-	defer db.Close()
+	mongo_conn := connectToMongo("localhost")
+	defer mongo_conn.Close()
+	mongo_conn.SetMode(mgo.Strong, true) // don't trust computers, ever
+	mongo_conn.SetSafe(&mgo.Safe{})
 
-	db.SetMode(mgo.Strong, true) // don't trust computers, ever
+	collection = mongo_conn.DB(databaseName).C(collectionName)
 
 	mux := routes.New()
 
